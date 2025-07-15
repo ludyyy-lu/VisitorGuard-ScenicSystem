@@ -32,6 +32,7 @@
 
 -- 将计算结果持续地 UPSERT 到 MySQL 表中
 -- 这个不带窗口的查询会持续地计算每个 area_id 的最新总和，并将结果更新到 MySQL 表中。
+-- 这个版本会出现人数为负数的情况
 INSERT INTO mysql_sink_area_stats
 SELECT
     area_id,
@@ -40,3 +41,36 @@ FROM
     kafka_visitor_events
 GROUP BY
     area_id;
+
+
+-- etl.sql (已修复负数问题的版本)
+
+-- =============================================================================
+--  第一个计算逻辑：实时统计各区域当前游客数 (已修复负数问题)
+-- =================================G============================================
+INSERT INTO mysql_sink_area_stats
+SELECT
+    area_id,
+    GREATEST(CAST(0 AS BIGINT), SUM(CASE `action` WHEN 'in' THEN 1 ELSE -1 END)) AS current_visitors
+FROM
+    kafka_visitor_events
+GROUP BY
+    area_id;
+
+
+-- =============================================================================
+--  第二个计算逻辑：按分钟窗口统计各区域的出入人次
+-- =============================================================================
+INSERT INTO mysql_sink_traffic_stats
+SELECT
+    area_id,
+    TUMBLE_END(event_time, INTERVAL '1' MINUTE) AS window_end,
+    -- 使用 COUNT 结合 CASE WHEN 来分别统计 'in' 和 'out' 的数量
+    COUNT(CASE `action` WHEN 'in' THEN 1 ELSE NULL END) AS in_count,
+    COUNT(CASE `action` WHEN 'out' THEN 1 ELSE NULL END) AS out_count
+FROM
+    kafka_visitor_events
+GROUP BY
+    -- 按区域ID和1分钟的滚动窗口进行分组
+    area_id,
+    TUMBLE(event_time, INTERVAL '1' MINUTE);

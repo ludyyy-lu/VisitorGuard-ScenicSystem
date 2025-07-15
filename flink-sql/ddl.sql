@@ -53,8 +53,27 @@ CREATE TABLE mysql_sink_area_stats (
     PRIMARY KEY (`area_id`) NOT ENFORCED -- 告诉 Flink area_id 是主键
 ) WITH (
     'connector' = 'jdbc',
-    'url' = 'jdbc:mysql://172.23.79.129:3306/bigdata', 
+    'url' = 'jdbc:mysql://172.23.79.129:3306/bigdata?serverTimezone=UTC', 
     'table-name' = 'area_realtime_stats',
     'username' = 'remote_user',
     'password' = 'Admin@123'
 );
+
+
+-- =============================================================================
+--  3. 创建 MySQL 目标表 (Sink) 用于存储每分钟出入流量
+-- =============================================================================
+
+CREATE TABLE mysql_sink_traffic_stats (
+    `area_id`         VARCHAR(255) NOT NULL,
+    `window_end`      DATETIME(3) NOT NULL,
+    `in_count`        BIGINT,
+    `out_count`       BIGINT,
+    WATERMARK FOR `window_end` AS `window_end` - INTERVAL '1' SECOND  -- 可选：定义水印
+) WITH (
+    'connector' = 'jdbc',
+    'url' = 'jdbc:mysql://172.23.79.129:3306/bigdata?serverTimezone=UTC',
+    'table-name' = 'area_traffic_per_minute',
+    'username' = 'remote_user',
+    'password' = 'Admin@123'
+) WITH PRIMARY KEY (`area_id`, `window_end`) NOT ENFORCED;
