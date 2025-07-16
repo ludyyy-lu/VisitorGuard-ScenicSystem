@@ -138,3 +138,40 @@ FROM
             a AS a.action = 'in',
             b AS b.action = 'out'
     );
+
+
+-- =============================================================================
+--  第五个计算逻辑：使用 MATCH_RECOGNIZE 分析热门游客路线
+-- =============================================================================
+INSERT INTO mysql_sink_route_log
+SELECT
+    user_id,
+    from_area,
+    to_area,
+    route_time,
+    travel_time_minutes
+FROM
+    kafka_visitor_events
+    MATCH_RECOGNIZE (
+        -- PARTITION BY 只按 user_id 分区，因为我们要追踪同一个游客在不同区域间的移动
+        PARTITION BY user_id
+        ORDER BY event_time
+        MEASURES
+            -- a.area_id 就是起点区域的名称
+            a.area_id AS from_area,
+            -- b.area_id 就是终点区域的名称
+            b.area_id AS to_area,
+            -- b.event_time 就是这条移动路径的发生时间（即到达B点的时间）
+            b.event_time AS route_time,
+            -- 计算两个事件的时间差作为移动耗时
+            TIMESTAMPDIFF(MINUTE, a.event_time, b.event_time) AS travel_time_minutes
+        ONE ROW PER MATCH
+        AFTER MATCH SKIP TO NEXT ROW
+        -- 定义核心模式：一个 'out' 事件，紧跟着一个 'in' 事件
+        PATTERN (a b)
+        DEFINE
+            -- 事件 a 必须是 'out'
+            a AS a.action = 'out',
+            -- 事件 b 必须是 'in'，并且它的区域不能和 a 的区域相同
+            b AS b.action = 'in' AND b.area_id <> a.area_id
+    );
