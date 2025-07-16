@@ -59,11 +59,11 @@ func main() {
 		event := VisitorEvent{
 			// 使用 'T' 分隔的 ISO 8601 格式，并确保有3位毫秒。
 			// 这会生成类似 "2025-07-15T10:30:00.123" 的字符串。
-			EventTime: time.Now().UTC().Format("2006-01-02T15:04:05.000"),
+			EventTime: time.Now().Format("2006-01-02T15:04:05.000"),
 			AreaID: area,
 			Action: action,
 			// 生成一个随机的游客ID，模拟不同的游客
-			UserID: fmt.Sprintf("user-%d", rand.Intn(10000)),
+			UserID: fmt.Sprintf("user-%d", rand.Intn(1000)),
 		}
 
 		// 将结构体序列化为 JSON 字节流

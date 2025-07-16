@@ -159,3 +159,38 @@ SELECT
     END AS alert_threshold
 FROM
     visitors_aggregation_view;
+
+
+-- =============================================================================
+--  6. 创建 MySQL 目标表 (Sink) 用于存储游客逗留时长
+-- =============================================================================
+CREATE TABLE mysql_sink_stay_duration (
+    `user_id` VARCHAR,
+    `area_id` VARCHAR,
+    `entry_time` TIMESTAMP(3),
+    `exit_time` TIMESTAMP(3),
+    `duration_minutes` BIGINT
+) WITH (
+    'connector' = 'jdbc',
+    'url' = 'jdbc:mysql://172.23.79.129:3306/bigdata?serverTimezone=UTC',
+    'table-name' = 'visitor_stay_duration',
+    'username' = 'remote_user', -- 替换为你的用户名
+    'password' = 'Admin@123'    -- 替换为你的密码
+);
+
+-- =============================================================================
+--  7. 创建 MySQL 目标表 (Sink) 用于存储游客移动路径
+-- =============================================================================
+CREATE TABLE mysql_sink_route_log (
+    `user_id` VARCHAR,
+    `from_area` VARCHAR,
+    `to_area` VARCHAR,
+    `route_time` TIMESTAMP(3),
+    `travel_time_minutes` BIGINT
+) WITH (
+    'connector' = 'jdbc',
+    'url' = 'jdbc:mysql://172.23.79.129:3306/bigdata?serverTimezone=UTC',
+    'table-name' = 'visitor_route_log',
+    'username' = 'remote_user', -- 替换为你的用户名
+    'password' = 'Admin@123'    -- 替换为你的密码
+);

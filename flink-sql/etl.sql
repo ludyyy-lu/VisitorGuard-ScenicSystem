@@ -109,42 +109,32 @@ FROM
     visitors_with_hardcoded_thresholds
 WHERE
     current_visitors > warning_threshold;
--- 将生成的警报插入到日志表中
--- INSERT INTO mysql_sink_alert_log
--- SELECT
---     -- 使用 Flink 的内置函数获取当前处理时间作为警报时间
---     LOCALTIMESTAMP AS alert_time,
---     v.area_id,
---     v.current_visitors,
---     -- 使用 CASE WHEN 判断警报级别
---     CASE
---         WHEN v.current_visitors > t.alert_threshold THEN '红色警戒'
---         WHEN v.current_visitors > t.warning_threshold THEN '黄色拥堵'
---         ELSE '未知级别'
---     END AS alert_level,
---     -- 使用 CONCAT 函数拼接成详细的警报消息
---     CONCAT(
---         '【',
---         CASE
---             WHEN v.current_visitors > t.alert_threshold THEN '红色警戒'
---             ELSE '黄色拥堵'
---         END,
---         '】区域: ', v.area_id,
---         ', 当前人数: ', CAST(v.current_visitors AS STRING),
---         ', 已超过阈值: ',
---         CASE
---             WHEN v.current_visitors > t.alert_threshold THEN CAST(t.alert_threshold AS STRING)
---             ELSE CAST(t.warning_threshold AS STRING)
---         END,
---         '人, 请相关人员注意！'
---     ) AS alert_message
--- FROM
---     -- 核心：将实时游客数流 (v) 与阈值维表 (t) 进行关联
---     realtime_visitors_view v
--- JOIN
---     mysql_dim_thresholds FOR SYSTEM_TIME AS OF v.PROCTIME() AS t
--- ON
---     v.area_id = t.area_id
--- WHERE
---     -- 筛选出所有超过警告阈值的记录
---     v.current_visitors > t.warning_threshold;
+
+
+-- =============================================================================
+--  第四个计算逻辑：使用 MATCH_RECOGNIZE 计算游客逗留时长 (最终语法修正版)
+-- =============================================================================
+INSERT INTO mysql_sink_stay_duration
+SELECT
+    user_id,
+    area_id,
+    entry_time,
+    exit_time,
+    TIMESTAMPDIFF(MINUTE, entry_time, exit_time) AS duration_minutes
+FROM
+    kafka_visitor_events
+    MATCH_RECOGNIZE (
+        PARTITION BY user_id, area_id
+        ORDER BY event_time
+        MEASURES
+            a.event_time AS entry_time,
+            b.event_time AS exit_time
+        ONE ROW PER MATCH
+        AFTER MATCH SKIP TO NEXT ROW
+        -- 【语法修正】PATTERN 只定义模式的结构
+        PATTERN (a b)
+        -- 【语法修正】使用独立的 DEFINE 子句来为模式变量赋予条件
+        DEFINE
+            a AS a.action = 'in',
+            b AS b.action = 'out'
+    );
