@@ -1,7 +1,3 @@
--- 这段代码的作用是告诉 Flink：
--- 有一个名为 kafka_visitor_events 的表，它连接到 Kafka 的 scenic_visitor_topic 主题。
--- 这个表的数据是 JSON 格式，并且 Flink 应该如何解析它的字段。
--- 定义一个名为 print_sink 的表，它会将结果直接打印到 Flink SQL 客户端的控制台。
 -- ddl.sql
 
 -- 这些代码应该在flinksql里面运行！！！
@@ -66,9 +62,10 @@ CREATE TABLE mysql_sink_area_stats (
 
 CREATE TABLE mysql_sink_traffic_stats (
     `area_id`         VARCHAR(255) NOT NULL,
-    `window_end`      DATETIME(3) NOT NULL,
+    `window_end`      TIMESTAMP(3) NOT NULL,
     `in_count`        BIGINT,
     `out_count`       BIGINT,
+    PRIMARY KEY (`area_id`, `window_end`) NOT ENFORCED,
     WATERMARK FOR `window_end` AS `window_end` - INTERVAL '1' SECOND  -- 可选：定义水印
 ) WITH (
     'connector' = 'jdbc',
@@ -76,4 +73,89 @@ CREATE TABLE mysql_sink_traffic_stats (
     'table-name' = 'area_traffic_per_minute',
     'username' = 'remote_user',
     'password' = 'Admin@123'
-) WITH PRIMARY KEY (`area_id`, `window_end`) NOT ENFORCED;
+);
+
+-- =============================================================================
+--  4. 创建 MySQL 维表 (Source) 用于读取预警阈值
+-- =============================================================================
+-- 这是一张维表 (Dimension Table)，它的数据是静态的，用于关联查询
+CREATE TABLE mysql_dim_thresholds (
+    `area_id` VARCHAR(255) NOT NULL,
+    `comfort_threshold` INT,
+    `warning_threshold` INT,
+    `alert_threshold` INT,
+    PRIMARY KEY (area_id) NOT ENFORCED
+) WITH (
+    'connector' = 'jdbc',
+    'url' = 'jdbc:mysql://172.23.79.129:3306/bigdata?serverTimezone=UTC',
+    'table-name' = 'area_thresholds',
+    'username' = 'remote_user', -- 替换为你的用户名
+    'password' = 'Admin@123'    -- 替换为你的密码
+);
+
+-- =============================================================================
+--  5. 创建 MySQL 目标表 (Sink) 用于存储预警日志
+-- =============================================================================
+-- CREATE TABLE mysql_sink_alert_log (
+--     `alert_time` TIMESTAMP(3),
+--     `area_id` VARCHAR(255),
+--     `current_visitors` BIGINT,
+--     `alert_level` VARCHAR(50),
+--     `alert_message` VARCHAR(512)
+-- ) WITH (
+--     'connector' = 'jdbc',
+--     'url' = 'jdbc:mysql://172.23.79.129:3306/bigdata?serverTimezone=UTC',
+--     'table-name' = 'alert_log',
+--     'username' = 'remote_user', -- 替换为你的用户名
+--     'password' = 'Admin@123'    -- 替换为你的密码
+-- );
+
+CREATE TABLE mysql_sink_current_alert (
+    `area_id` VARCHAR(255) NOT NULL,
+    `last_alert_time` TIMESTAMP(3),
+    `current_visitors` BIGINT,
+    `alert_level` VARCHAR(50),
+    `alert_message` VARCHAR(512),
+    PRIMARY KEY (area_id) NOT ENFORCED
+) WITH (
+    'connector' = 'jdbc',
+    'url' = 'jdbc:mysql://172.23.79.129:3306/bigdata?serverTimezone=UTC',
+    'table-name' = 'area_current_alert', -- 指向我们新建的表
+    'username' = 'remote_user',
+    'password' = 'Admin@123'
+);
+
+-- 计算实时游客人数，和之前一样
+CREATE OR REPLACE TEMPORARY VIEW visitors_aggregation_view AS
+SELECT
+    area_id,
+    GREATEST(CAST(0 AS BIGINT), SUM(CASE `action` WHEN 'in' THEN 1 ELSE -1 END)) as current_visitors
+FROM
+    kafka_visitor_events
+GROUP BY
+    area_id;
+
+CREATE OR REPLACE TEMPORARY VIEW visitors_with_hardcoded_thresholds AS
+SELECT
+    area_id,
+    current_visitors,
+    -- 使用 CASE WHEN 硬编码每个区域的警告阈值
+    CASE area_id
+        WHEN '好莱坞大道' THEN 100
+        WHEN '哈利波特的魔法世界' THEN 180
+        WHEN '小黄人乐园' THEN 120
+        WHEN '侏罗纪世界大冒险' THEN 250
+        WHEN '变形金刚基地' THEN 220
+        ELSE 99999 -- 为未知的区域设置一个超大值，避免误报
+    END AS warning_threshold,
+    -- 使用 CASE WHEN 硬编码每个区域的警戒阈值
+    CASE area_id
+        WHEN '好莱坞大道' THEN 120
+        WHEN '哈利波特的魔法世界' THEN 200
+        WHEN '小黄人乐园' THEN 150
+        WHEN '侏罗纪世界大冒险' THEN 300
+        WHEN '变形金刚基地' THEN 250
+        ELSE 999999
+    END AS alert_threshold
+FROM
+    visitors_aggregation_view;
