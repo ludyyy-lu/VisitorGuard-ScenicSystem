@@ -99,7 +99,7 @@ func sendMessage(writer *kafka.Writer, event VisitorEvent) {
 	msg := kafka.Message{Value: eventJSON}
 	err = writer.WriteMessages(context.Background(), msg)
 	if err != nil {
-		log.Printf("无法写入消息到 Kafka: %v\n", err)
+		log.Printf("无法写入消息%s到 Kafka: %v\n", string(eventJSON), err)
 	} else {
 		log.Printf("成功发送消息: %s\n", string(eventJSON))
 	}
